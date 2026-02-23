@@ -1,0 +1,70 @@
+services:
+  tyk-redis:
+    image: redis:7-alpine
+    container_name: tyk-redis
+    networks: [tyk-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  tyk-postgres:
+    image: postgres:14-alpine
+    container_name: tyk-postgres
+    environment:
+      POSTGRES_USER: tyk
+      POSTGRES_PASSWORD: tykpassword
+      POSTGRES_DB: tyk
+    networks: [tyk-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tyk -d tyk"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  tyk-dashboard:
+    image: tykio/tyk-dashboard:v5.6.1
+    container_name: tyk-dashboard
+    depends_on:
+      tyk-redis:
+        condition: service_healthy
+      tyk-postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    networks: [tyk-net]
+    volumes:
+      # IMPORTANT: mount FILE -> FILE
+      - ./tyk_analytics.conf:/opt/tyk-dashboard/tyk_analytics.conf:ro
+
+  tyk-gateway:
+    image: tykio/tyk-gateway:v5.6.1
+    container_name: tyk-gateway
+    depends_on:
+      tyk-dashboard:
+        condition: service_started
+      tyk-redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks: [tyk-net]
+    environment:
+      # keep minimal; your existing gateway config may already set these elsewhere
+      TYK_GW_STORAGE_HOST: tyk-redis
+      TYK_GW_STORAGE_PORT: 6379
+
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins
+    ports:
+      - "9090:8080"
+    networks: [tyk-net]
+    volumes:
+      - jenkins_home:/var/jenkins_home
+
+networks:
+  tyk-net:
+
+volumes:
+  jenkins_home:
